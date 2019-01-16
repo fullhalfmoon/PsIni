@@ -6,7 +6,7 @@ $Module = "$root\PSIni"
 $Functions = "$root\PSIni\Functions"
 Set-Location $ScriptDir
 
-$manifestPath   = "$Module\PsIni.psd1"
+$manifestPath = "$Module\PsIni.psd1"
 
 Describe -Tags 'VersionChecks' "PsIni manifest" {
     $script:manifest = $null
@@ -27,26 +27,6 @@ Describe -Tags 'VersionChecks' "PsIni manifest" {
     It "has a valid version in the manifest" {
         $script:manifest.Version -as [Version] | Should Not BeNullOrEmpty
     }
-
-    # if (Get-Command git.exe -ErrorAction SilentlyContinue) {
-    #     $script:tagVersion = $null
-    #     It "is tagged with a valid version" {
-    #         $thisCommit = git.exe log --decorate --oneline HEAD~1..HEAD
-
-    #         if ($thisCommit -match 'tag:\s*(\d+(?:\.\d+)*)')
-    #         {
-    #             $script:tagVersion = $matches[1]
-    #         }
-
-    #         $script:tagVersion                  | Should Not BeNullOrEmpty
-    #         $script:tagVersion -as [Version]    | Should Not BeNullOrEmpty
-    #     }
-
-    #     It "all versions are the same" {
-    #         $script:manifest.Version -as [Version] | Should be ( $script:tagVersion -as [Version] )
-    #     }
-
-    # }
 }
 
 Describe "PsIni functionality" {
@@ -60,7 +40,7 @@ Describe "PsIni functionality" {
     $dictIn["Category1"]["Key1"] = "Value1"
     $dictIn["Category1"]["Key2"] = "Value2"
     $dictIn["Category2"] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
-    $dictIn["Category2"]["Key3"] = "Value3"
+    $dictIn["Category2"]["Key3"] = @("Value3.1", "Value3.2", "Value3.3")
     $dictIn["Category2"]["Key4"] = "Value4"
 
     Context "Load Module" {
@@ -89,10 +69,31 @@ Describe "PsIni functionality" {
         # assert
         It "content matches expected value" {
 
-            $content = "`r`n[Category1]`r`nKey1=value1`r`nKey2=Value2`r`n`r`n[Category2]`r`nKey3=Value3`r`nKey4=Value4`r`n"
+            $content = "[Category1]`r`nKey1=value1`r`nKey2=Value2`r`n[Category2]`r`nKey3=Value3.1`r`nKey3=Value3.2`r`nKey3=Value3.3`r`nKey4=Value4`r`n"
 
-            # http://powershell.org/wp/2013/10/21/why-get-content-aint-yer-friend
-            Get-Content $iniFile | Out-String | Should Be $content
+            Get-Content $iniFile -Raw | Should Be $content
+
+        }
+
+    }
+
+    Context "Writing pretty INI" {
+
+        # act
+        $dictIn | Out-IniFile -FilePath $iniFile -Pretty
+
+        # assert
+        It "creates a file" {
+            # should exist
+            Test-Path $iniFile | Should Be $true
+        }
+
+        # assert
+        It "content matches expected value" {
+
+            $content = "[Category1]`r`nKey1=value1`r`nKey2=Value2`r`n`r`n[Category2]`r`nKey3=Value3.1`r`nKey3=Value3.2`r`nKey3=Value3.3`r`nKey4=Value4`r`n"
+
+            Get-Content $iniFile -Raw | Should Be $content
 
         }
 
@@ -100,9 +101,11 @@ Describe "PsIni functionality" {
 
     Context "Reading INI" {
 
-        # act
+        #arrange
         Out-IniFile -InputObject $dictIn -FilePath $iniFile
-        $dictOut = Get-IniContent -FilePath $iniFile
+
+        # act
+        $global:dictOut = Get-IniContent -FilePath $iniFile
 
         # assert
         It "creates a OrderedDictionary from an INI file" {
@@ -112,6 +115,17 @@ Describe "PsIni functionality" {
         # assert
         It "content matches original hashtable" {
             Compare-Object $dictIn $dictOut
+        }
+
+        #assert
+        It "reads sames keys into an [array]" {
+            $dictOut["Category2"]["Key3"].gettype().FullName | Should -Be "System.Collections.ArrayList"
+        }
+
+        It "keeps non repeating keys as [string]" {
+            $dictOut["Category1"]["Key1"] | Should -BeOfType [String]
+            $dictOut["Category1"]["Key2"] | Should -BeOfType [String]
+            $dictOut["Category2"]["Key4"] | Should -BeOfType [String]
         }
 
     }
@@ -127,7 +141,7 @@ Describe "PsIni functionality" {
         $content["Category2"]["Key3"] = "Value3"
         $content["Category2"]["Key4"] = "Value4"
 
-        $content | Set-IniContent -Sections 'Category1' -NameValuePairs @{'Key1'='NewValue1'}
+        $content | Set-IniContent -Sections 'Category1' -NameValuePairs @{'Key1' = 'NewValue1'}
 
         # assert
         It "updates INI content with the new value" {
@@ -147,7 +161,7 @@ Describe "PsIni functionality" {
         $content["Category2"]["Key3"] = "Value3"
         $content["Category2"]["Key4"] = "Value4"
 
-        $content | Remove-IniEntry -Sections 'Category1','Category2' -Keys 'Key1','Key3'
+        $content | Remove-IniEntry -Sections 'Category1', 'Category2' -Keys 'Key1', 'Key3'
 
         # assert
         It "removes specified keys from INI" {
@@ -186,7 +200,7 @@ Describe "PsIni functionality" {
 
     }
 
-    
+
     Context "Commenting out INI Content" {
 
         # act
@@ -198,7 +212,7 @@ Describe "PsIni functionality" {
         $content["Category2"]["Key3"] = "Value3"
         $content["Category2"]["Key4"] = "Value4"
 
-        $content | Add-IniComment -Keys 'Key1','Key4'
+        $content | Add-IniComment -Keys 'Key1', 'Key4'
 
         # assert
         It "removes specified keys from INI" {
@@ -262,7 +276,7 @@ Describe "PsIni functionality" {
         $content["Category2"]["Comment1"] = "#Key3=Cat2Value3"
         $content["Category2"]["Key4"] = "Value4"
 
-        [char[]]$commentChars = @(";","#")
+        [char[]]$commentChars = @(";", "#")
         $content | Remove-IniComment -Keys 'Key3' -CommentChar $commentChars
 
         # assert
@@ -282,7 +296,7 @@ Describe "PsIni functionality" {
 }
 
 Describe 'Style rules' {
-    $psiniRoot = (Get-Module PsIni).ModuleBase
+    $psiniRoot = $Module
 
     $files = @(
         Get-ChildItem $psiniRoot -Include *.ps1, *.psm1
